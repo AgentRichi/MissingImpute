@@ -3,28 +3,60 @@ title: "MissingImpute"
 author: "Richard Rossmann"
 date: "05/09/2019"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(bnlearn)
+library(sqldf)
 ```
 
-## R Markdown
+## bnlearn
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+Below is an example of missing data impute using the bnlearn package
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+```{r bnlearn sample}
+# missing data imputation.
+with.missing.data = gaussian.test
+with.missing.data[sample(nrow(with.missing.data), 500), "F"] = NA
+fitted = bn.fit(model2network("[A][B][E][G][C|A:B][D|B][F|A:D:E:G]"),
+           gaussian.test)
+imputed = impute(fitted, with.missing.data)
 
-```{r cars}
-summary(cars)
+# predicting a variable in the test set.
+training = bn.fit(model2network("[A][B][E][G][C|A:B][D|B][F|A:D:E:G]"),
+           gaussian.test[1:2000, ])
+test = gaussian.test[2001:nrow(gaussian.test), ]
+predicted = predict(training, node = "F", data = test)
+
+# obtain the conditional probabilities for the values of a single variable
+# given a subset of the rest, they are computed to determine the predicted
+# values.
+fitted = bn.fit(model2network("[A][C][F][B|A][D|A:C][E|B:F]"), learning.test)
+evidence = data.frame(A = factor("a", levels = levels(learning.test$A)),
+                      F = factor("b", levels = levels(learning.test$F)))
+predicted = predict(fitted, "C", evidence,
+              method = "bayes-lw", prob = TRUE)
+attr(predicted, "prob")
 ```
 
-## Including Plots
+## Dspark data
 
-You can also embed plots, for example:
+Let's load in a sample of Dspark data and see if we can replicate the process:
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r load data}
+trips_od <- read.csv('../190522 DSpark data tables/VicRoadsExport/VicRoadsExport/DoT/od_by_tod_WD.csv')
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r transform}
+trips_od$origin_sa2 <- as.factor(trips_od$origin_sa2)
+trips_od$dest_sa2 <- as.factor(trips_od$dest_sa2)
+trips_od$starthr <- as.factor(trips_od$starthr)
+trips_od <- trips_od[c(1:4,6)]
+#res = set.arc(gs(trips_od), "origin_sa2", "dest_sa2")
+fitted = bn.fit(model2network("[origin_sa2][dest_sa2][starthr][dominantMode][ntrips_avg_daily|origin_sa2:dest_sa2:starthr:dominantMode]"),
+                trips_od)
+imputed = impute(fitted, trips_od)
+```
